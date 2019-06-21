@@ -1,0 +1,180 @@
+using System.Collections;
+using System.Collections.Generic;
+using UnityEngine;
+
+public class TestAi : MonoBehaviour {
+
+    public enum CurrentTeam
+    {
+        Team1, Team2, Neutral
+    }
+
+    public CurrentTeam Team;
+
+    [SerializeField] private int Health = 10, Damage = 1;
+    [SerializeField] private float AttackRange = 1, ScanRange = 1.5f, DurationBetweenAttacks = 3, MoveSpeed = 0.1f, Rotationspeed = 3.0f;
+    [SerializeField] private GameObject BulletObject;
+    [SerializeField] private Transform BulletSpawnPoint, Target, TargetBase;
+    [SerializeField] private int MaxAmountOfBullets;
+
+    private float attackTime;
+    private int currentHealth;
+    private GameManager GM;
+    private List<GameObject> bullets = new List<GameObject>();
+
+    void Start ()
+    {
+        GM = GameObject.Find("GameManager").GetComponent<GameManager>();
+        currentHealth = Health;
+
+        // Spawn X Amount of Bullet Objects at Start to prevent Instantiating on Runtime and add them to a list.
+        for (int i = 0; i < MaxAmountOfBullets; i++)
+        {
+            GameObject bullet = Instantiate(BulletObject, BulletSpawnPoint.position, BulletSpawnPoint.rotation);
+            bullet.GetComponent<BulletManager>().ChangeBulletDamage(Damage);
+            bullet.tag = this.gameObject.tag;
+            bullet.GetComponent<MeshRenderer>().material = this.gameObject.GetComponent<MeshRenderer>().material; 
+            bullets.Add(bullet);
+            bullet.SetActive(false);
+        }
+
+        // Searching for nearest Base.
+        SearchForBase();
+    }
+    
+	
+	void Update ()
+    {
+        float targetDistance;
+        Quaternion lookRotation;
+
+        // Scan for Enemies in Range.
+        Collider[] targetCollider = Physics.OverlapSphere(this.transform.position, ScanRange);
+
+        if (Target != null)
+        {
+            // Rotate to Target.
+            targetDistance = Vector3.Distance(this.transform.position, Target.transform.position);
+
+            lookRotation = Quaternion.LookRotation(Target.position - this.transform.position);
+
+            this.transform.rotation = Quaternion.Slerp(this.transform.rotation, lookRotation, Time.deltaTime * Rotationspeed);
+            this.transform.eulerAngles = new Vector3(0, this.transform.eulerAngles.y, 0);
+
+            // When Target in Attackrange, shoot! Else move to Target.
+            if (targetDistance <= AttackRange)
+            {
+                if(attackTime <= 0)
+                {
+                    for(int i = 0; i < bullets.Count; i++)
+                    {
+                        if (!bullets[i].activeInHierarchy)
+                        {
+                            bullets[i].transform.position = BulletSpawnPoint.position;
+                            bullets[i].transform.rotation = BulletSpawnPoint.rotation;
+                            bullets[i].GetComponent<BulletManager>().SetLifeTime();
+                            bullets[i].SetActive(true);
+                            break;
+                        }
+                        else
+                        {
+                            continue;
+                        }
+                    }
+
+                    attackTime = DurationBetweenAttacks;
+                }
+            }
+            else if(targetDistance > AttackRange)
+            {
+                this.transform.Translate(new Vector3(0, 0, MoveSpeed));
+            }
+        }
+
+        // When Enemies or Player in Scanrange, select as Target.
+        if (targetCollider.Length > 0)
+        {
+            foreach (Collider collider in targetCollider)
+            { 
+                if (collider.GetComponent<PlayerManager>())
+                {
+                    if ((collider.GetComponent<PlayerManager>().Team != PlayerManager.CurrentTeam.Team1 && this.Team == CurrentTeam.Team1) ||
+                        (collider.GetComponent<PlayerManager>().Team != PlayerManager.CurrentTeam.Team2 && this.Team == CurrentTeam.Team2))
+                        Target = collider.transform;
+                }
+                else if (collider.GetComponent<TestAi>())
+                {
+                    if ((collider.GetComponent<TestAi>().Team != CurrentTeam.Team1 && this.Team == CurrentTeam.Team1) ||
+                        (collider.GetComponent<TestAi>().Team != CurrentTeam.Team2 && this.Team == CurrentTeam.Team2))
+                        Target = collider.transform;
+                }
+            }
+        }
+
+        // When Target destroyed or null and no Base as Target available, search for nearest Base. Else select searched Base as Target. 
+        if (Target == null || (this.gameObject.tag == "Team 1" && Target.gameObject.tag == "Team 1") || (this.gameObject.tag == "Team 2" && Target.gameObject.tag == "Team 2"))
+        {
+            if(TargetBase == null || (this.gameObject.tag == "Team 1" && TargetBase.gameObject.tag == "Team 1") || (this.gameObject.tag == "Team 2" && TargetBase.gameObject.tag == "Team 2"))
+            {
+                // Searching for nearest Base.
+                SearchForBase();
+            }
+            else if(TargetBase != null)
+            {
+                Target = TargetBase;
+            }
+        }
+        
+        if(attackTime > 0)
+        {
+            attackTime -= Time.deltaTime;
+        }
+
+        // If Health 0, destroy this Object!
+        if (currentHealth <= 0)
+        {
+            for (int i = 0; i < bullets.Count; i++)
+            {
+                Destroy(bullets[i]);
+            }
+
+            Destroy(gameObject);
+        }
+	}
+
+    // Damage Object.
+    public void HurtObject(int damage)
+    {
+        currentHealth -= damage;
+    }
+
+    // Search for Base.
+    public void SearchForBase()
+    {
+        TargetBase = null;
+
+        if (GM != null)
+        {
+            if(GM.Bases.Count > 0)
+            {
+                float distance1, distance2 = 10000;
+
+                foreach (GameObject currentBase in GM.Bases)
+                {
+                    if (currentBase.tag == this.gameObject.tag)
+                        continue;
+
+                    distance1 = Vector3.Distance(this.transform.position, currentBase.transform.position);
+
+                    if(distance1 <= distance2)
+                    {
+                        TargetBase = currentBase.transform;
+                        distance2 = distance1;
+                    }
+                }
+
+                Target = TargetBase;
+            }
+        }
+    }
+} 
